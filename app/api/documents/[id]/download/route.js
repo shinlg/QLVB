@@ -81,7 +81,6 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Tệp không tồn tại trên hệ thống lưu trữ!' }, { status: 404 });
     }
 
-    const fileBuffer = fs.readFileSync(filePath);
     const stat = fs.statSync(filePath);
 
     // Xác định chuẩn Content-Type linh hoạt
@@ -90,7 +89,11 @@ export async function GET(request, { params }) {
     else if (filePath.endsWith('.png')) contentType = 'image/png';
     else if (filePath.endsWith('.doc') || filePath.endsWith('.docx')) contentType = 'application/msword';
 
-    return new NextResponse(fileBuffer, {
+    // 6. TỐI ƯU HIỆU NĂNG: Sử dụng fs.createReadStream thay vì readFileSync để truyền tải dạng chunk, tiết kiệm RAM[cite: 9]
+    const fileStream = fs.createReadStream(filePath);
+    const webStream = WebStreamFromNodeStream(fileStream);
+
+    return new NextResponse(webStream, {
       status: 200,
       headers: {
         'Content-Type': contentType,
@@ -102,4 +105,18 @@ export async function GET(request, { params }) {
     console.error('Lỗi tải file bảo mật:', error);
     return NextResponse.json({ error: 'Lỗi hệ thống khi tải file!' }, { status: 500 });
   }
+}
+
+// Hàm hỗ trợ chuyển đổi Node.js Readable Stream sang Web Standard ReadableStream cho Next.js App Router
+function WebStreamFromNodeStream(nodeStream) {
+  return new ReadableStream({
+    start(controller) {
+      nodeStream.on('data', (chunk) => controller.enqueue(chunk));
+      nodeStream.on('end', () => controller.close());
+      nodeStream.on('error', (err) => controller.error(err));
+    },
+    cancel() {
+      nodeStream.destroy();
+    }
+  });
 }
